@@ -1,0 +1,80 @@
+WITH line_items AS(
+SELECT
+    l.order_id
+    ,SUM(l.quantity) as quantity
+    ,SUM(CASE WHEN l.category = 'Everyday Bras' THEN l.quantity ELSE 0 END) as everyday_bras
+    ,SUM(CASE WHEN l.category = 'Sports Bras' THEN l.quantity ELSE 0 END) as sports_bras
+    ,SUM(CASE WHEN l.category = 'Essential' THEN l.quantity ELSE 0 END) as essential
+    ,SUM(CASE WHEN l.category = 'Leakproof' THEN l.quantity ELSE 0 END) as leakproof
+    ,SUM(CASE WHEN l.category = 'Thigh Saver' THEN l.quantity ELSE 0 END) as thigh_saver
+    ,SUM(CASE WHEN l.category = 'Tops' THEN l.quantity ELSE 0 END) as tops
+    ,SUM(CASE WHEN l.category = 'Swimwear' THEN l.quantity ELSE 0 END) as swim
+    ,SUM(CASE WHEN l.category = 'Maternity' THEN l.quantity ELSE 0 END) as Maternity
+    ,SUM(CASE WHEN l.category IN ('Accessories', 'Sleep', 'Gift Card','Other','Subscription','EMPTY SKU') THEN l.quantity ELSE 0 END) as other
+    ,SUM(CASE WHEN l.category = 'Everyday Bras' THEN ((l.price*l.quantity)-l.total_discounts) ELSE 0 END) as everyday_bras_sales
+    ,SUM(CASE WHEN l.category = 'Sports Bras' THEN ((l.price*l.quantity)-l.total_discounts) ELSE 0 END) as sports_bras_sales
+    ,SUM(CASE WHEN l.category = 'Essential' THEN ((l.price*l.quantity)-l.total_discounts) ELSE 0 END) as essential_sales
+    ,SUM(CASE WHEN l.category = 'Leakproof' THEN ((l.price*l.quantity)-l.total_discounts) ELSE 0 END) as leakproof_sales
+    ,SUM(CASE WHEN l.category = 'Thigh Saver' THEN ((l.price*l.quantity)-l.total_discounts) ELSE 0 END) as thigh_saver_sales
+    ,SUM(CASE WHEN l.category = 'Tops' THEN ((l.price*l.quantity)-l.total_discounts) ELSE 0 END) as tops_sales
+    ,SUM(CASE WHEN l.category = 'Swimwear' THEN ((l.price*l.quantity)-l.total_discounts) ELSE 0 END) as swim_sales
+    ,SUM(CASE WHEN l.category = 'Maternity' THEN ((l.price*l.quantity)-l.total_discounts) ELSE 0 END) as maternity_sales
+    ,SUM(CASE WHEN l.category IN ('Accessories', 'Sleep', 'Gift Card','Other','Subscription','EMPTY SKU') THEN ((l.price*l.quantity)-l.total_discounts) ELSE 0 END) as other_sales
+FROM shopify.line_items l
+GROUP BY 1
+),
+non_draft as(
+SELECT 
+    DISTINCT t.order_id 
+FROM shopify.transactions t
+WHERE t.status = 'success' AND t.gateway <> 'manual'
+),
+became_repeat as(
+SELECT
+    n.email
+    ,n.created_at as repeat_date
+FROM(
+    SELECT
+        o.email
+        ,o.created_at
+        ,ROW_NUMBER() OVER(PARTITION BY o.email ORDER BY o.created_at ASC NULLS LAST) as order_number
+    FROM shopify.orders o
+    JOIN non_draft t ON t.order_id=o.id
+        AND o.sales_channel != 'Returns by Loop'
+    ) n
+WHERE n.order_number=2
+) 
+SELECT
+    o.created_at::date AS order_date
+    ,o.store
+    ,CASE WHEN o.created_at::date >= r.repeat_date::date THEN TRUE ELSE FALSE END as is_repeat_on_that_day
+    ,COUNT(distinct o.id) as nb_of_orders
+    ,SUM(o.net_sales)              AS net_sales
+    ,SUM(o.net_sales + o.shipping) AS net_sales_shipping
+    ,SUM(l.quantity) as units
+    ,SUM(l.everyday_bras) as everyday_bras
+    ,SUM(l.sports_bras) as sports_bras
+    ,SUM(l.essential) as essential
+    ,SUM(l.leakproof) as leakproof
+    ,SUM(l.thigh_saver) as thigh_saver
+    ,SUM(l.tops) as tops
+    ,SUM(l.swim) as swim
+    ,SUM(l.other) as other
+    ,SUM(l.everyday_bras_sales) as everyday_bras_sales
+    ,SUM(l.sports_bras_sales) as sports_bras_sales
+    ,SUM(l.essential_sales) as essential_sales
+    ,SUM(l.leakproof_sales) as leakproof_sales
+    ,SUM(l.thigh_saver_sales) as thigh_saver_sales
+    ,SUM(l.tops_sales) as tops_sales
+    ,SUM(l.swim_sales) as swim_sales
+    ,SUM(l.other_sales) as other_sales
+    ,COUNT(distinct o.email) as customer_purchasing
+    ,SUM(l.maternity) as maternity
+    ,SUM(l.maternity_sales) as maternity_sales
+FROM shopify.orders o
+LEFT JOIN became_repeat r ON r.email = o.email
+JOIN non_draft t ON t.order_id=o.id
+    AND o.sales_channel != 'Returns by Loop' 
+LEFT JOIN line_items l ON l.order_id = o.id
+where o.created_at::date between '2019-08-13'::date and '2019-08-21'::date
+GROUP BY 1,2,3
